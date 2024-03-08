@@ -24,8 +24,12 @@ class Region(TypedDict):
     width: int
     height: int
 
+# this works for ultrawide 3440x1440
+# TODO: get region for common resolutions
+CAPTURE_REGION: typing.Final[Region] = {'left': 1480, 'top': 640, 'width': 600, 'height': 100}
+INPUT_MAPPING: typing.Final[dict[str, str]] = {'Down': 'S', 'Up': 'W', 'Left': 'A', 'Right': 'D'}
 
-ahk = AHK(version='v1', directives=[NoTrayIcon])
+
 
 STRATAGEMS: dict[str, list[Literal['Down', 'Left', 'Up', 'Right']]] = {
     'OCI Ready': [],  # No inputs when "Get ready" is shown on screen... OCR usually recognizes as "OCI Ready"
@@ -83,36 +87,30 @@ STRATAGEMS: dict[str, list[Literal['Down', 'Left', 'Up', 'Right']]] = {
 }
 
 STRATAGEMS = {k.lower(): v for k, v in STRATAGEMS.items()}
-# this works for ultrawide 3440x1440
-# TODO: get region for common resolutions
-region: Region = {'left': 1480, 'top': 640, 'width': 600, 'height': 100}
-INPUT_MAPPING: typing.Final = {'Down': 'S', 'Up': 'W', 'Left': 'A', 'Right': 'D'}
-choices = tuple(k.lower() for k in STRATAGEMS.keys())
-alpha = string.ascii_letters + string.digits
-
-reader = easyocr.Reader(['en'])
+_CHOICES = tuple(k.lower() for k in STRATAGEMS.keys())
+_reader = easyocr.Reader(['en'])
 
 
 def capture_and_ocr(sct: MSSBase, region: Region) -> str:
     sct_img = sct.grab(region)  # type: ignore[arg-type]
     image_np = np.array(sct_img)
-    results = reader.readtext(image_np, detail=0)
+    results = _reader.readtext(image_np, detail=0)
     text = ' '.join(results)
     return text
 
-
+_alpha = string.ascii_letters + string.digits
 @lru_cache(maxsize=None)
 def get_counts(s: str) -> dict[str, int]:
     counts: dict[str, int] = collections.Counter()
     for c in s:
-        if c not in alpha:
+        if c not in _alpha:
             continue
         counts[c] += 1
     return counts
 
 
 # pre-warm the cache
-for ch in choices:
+for ch in _CHOICES:
     get_counts(ch)
 
 
@@ -139,7 +137,8 @@ def simple_match(s: str, choices: Sequence[str]) -> tuple[str, int]:
 
 
 def main() -> int:
-    for window in ahk.list_windows():
+    _ahk = AHK(version='v1', directives=[NoTrayIcon])
+    for window in _ahk.list_windows():
         if 'helldivers2' in window.process_path.lower():
             helldivers = window
             print('Found', helldivers.title, helldivers.process_path)
@@ -158,11 +157,11 @@ def main() -> int:
     with mss() as sct:
         while True:
             with suppress(Exception):
-                active_window = ahk.get_active_window()
+                active_window = _ahk.get_active_window()
                 if active_window is not None and 'helldivers2' not in active_window.get_process_path().lower():
                     print('Helldivers not focused. Exiting.')
                     return 0
-            text = capture_and_ocr(sct, region)
+            text = capture_and_ocr(sct, CAPTURE_REGION)
             if not text:
                 print('No text found.')
                 continue
@@ -172,7 +171,7 @@ def main() -> int:
                 print('Detected leaderboard screen. Ignoring.')
                 continue
 
-            strat, deviation = simple_match(text.lower().replace('score', ''), choices)
+            strat, deviation = simple_match(text.lower().replace('score', ''), _CHOICES)
             input_code = STRATAGEMS[strat]
             print(strat.title(), f'({" ".join(input_code)})', 'matched. deviation:', deviation)
             if deviation > len(strat):
